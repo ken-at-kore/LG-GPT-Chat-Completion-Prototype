@@ -10,7 +10,7 @@
             "request": "launch",
             "module": "streamlit",
             "justMyCode": true,
-            "args": ["run", "MyStreamlitAiBot.py"]
+            "args": ["run", "my_streamlit_aibot.py"]
         }
     ]
 } 

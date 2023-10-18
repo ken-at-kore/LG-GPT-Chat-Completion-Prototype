@@ -1,3 +1,4 @@
+import typing
 from typing import List
 import streamlit as st
 from datetime import datetime
@@ -8,21 +9,29 @@ import json
 
 class AiFunction:
     def __init__(self):
-        assert hasattr(self.__class__, 'execute'), f'{self.__class__.__name__} must define a static execute(args) method'
-        assert hasattr(self.__class__, 'get_spec'), f'{self.__class__.__name__} must define a static get_spec() method'
+        assert hasattr(self.__class__, 'get_spec'), f'{self.__class__.__name__} must define a get_spec() method'
+        assert hasattr(self.__class__, 'execute'), f'{self.__class__.__name__} must define an execute(args) method'
+
     class Result:
         def __init__(self, val):
             self.value = val
+
     class Collection:
-        def __init__(self, function_classes):
+        def __init__(self, ai_functions:List=[]):
             self.functions = {}
-            for function_class in function_classes:
-                assert issubclass(function_class, AiFunction), f"{function_class} is not a subclass of AiFunction"
-                function_obj = function_class()
-                function_name = function_obj.get_spec()['name']
-                self.functions[function_name] = function_obj
+            for ai_func in ai_functions:
+                assert isinstance(ai_func, AiFunction), f"{ai_func} is not an instance of AiFunction"
+                function_name = ai_func.get_spec()['name']
+                self.functions[function_name] = ai_func
+        
+        def is_empty(self):
+            return not self.functions
+
         def get_function_specs(self):
-            return [function.get_spec() for function in self.functions.values()]
+            if not self.is_empty():
+                return [function.get_spec() for function in self.functions.values()]
+            return None
+        
         def get_function(self, name):
             return self.functions.get(name)
 
@@ -30,23 +39,16 @@ class AiFunction:
 
 class StreamlitAiBot:
     
-    def __init__(self,
-                 streamlit_page_title:str="My AiBot",
-                 openai_model:str="gpt-3.5-turbo",
-                 model_temperature:float=0.25,
-                 show_function_activity:bool=False,
-                 system_prompt_engineering:str='You are a helpful assistant.',
-                 welcome_message:str='Hello! How can I assist you today?',
-                 ai_functions:AiFunction.Collection=None
-    ):
-        self.streamlit_page_title = streamlit_page_title
-        self.openai_model=openai_model
-        self.model_temperature = model_temperature
-        self.show_function_activity = show_function_activity
-        self.system_prompt_engineering = system_prompt_engineering
-        self.welcome_message = welcome_message
-        if ai_functions is None:
-            self.ai_functions = AiFunction.Collection
+    def __init__(self, **kwargs):
+        self.streamlit_page_title = kwargs.get('streamlit_page_title', "My AiBot")
+        self.openai_model = kwargs.get('openai_model', "gpt-3.5-turbo")
+        self.model_temperature = kwargs.get('model_temperature', 0.25)
+        self.show_function_activity = kwargs.get('show_function_activity', False)
+        self.system_prompt_engineering = kwargs.get('system_prompt_engineering', 'You are a helpful assistant.')
+        self.welcome_message = kwargs.get('welcome_message', 'Hello! How can I assist you today?')
+
+        ai_funcs_arg = kwargs.get('ai_functions', None)
+        self.ai_functions = AiFunction.Collection(ai_funcs_arg) if ai_funcs_arg is not None else AiFunction.Collection()
 
 
 
@@ -57,7 +59,7 @@ class StreamlitAiBot:
                  show_function_activity:bool=False,
                  system_prompt_engineering:str='You are a helpful assistant.',
                  welcome_message:str='Hello! How can I assist you today?',
-                 ai_functions:AiFunction.Collection=None
+                 ai_functions:List[AiFunction]=None
     ):
         bot = StreamlitAiBot(streamlit_page_title=streamlit_page_title,
                              openai_model=openai_model,
@@ -100,14 +102,19 @@ class StreamlitAiBot:
             full_response = ""
             bot_content_response = ""
 
+            # Prepare OpenAI GPT call parameters
+            chat_completion_params = {
+                'model': self.openai_model,
+                'messages': st.session_state["gpt_messages"],
+                'stream': True,
+                'temperature': self.model_temperature
+            }
+            if not self.ai_functions.is_empty():
+                chat_completion_params['functions'] = self.ai_functions.get_function_specs()
+
             # Call OpenAI GPT (Response is streamed)
-            for response in openai.ChatCompletion.create(
-                model=st.session_state["openai_model"],
-                messages=st.session_state["gpt_messages"],
-                stream=True,
-                temperature=self.model_temperature,
-                # functions=ai_actions.get_function_specs()
-            ):
+            for response in openai.ChatCompletion.create(**chat_completion_params):
+
                 # Handle content stream
                 if not response.choices[0].delta.get("function_call",""):
                     content_chunk = response.choices[0].delta.get("content", "")
@@ -156,9 +163,11 @@ class StreamlitAiBot:
             assert function_obj is not None, f'Function {function_call_name} is not defined in the function collection'
             try:
                 func_call_results = function_obj.execute(json.loads(function_call_response))
+                assert isinstance(func_call_results, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_results)}"
             except Exception as e:
-                func_call_results = AiFunction.Result(str(e))
-                # raise e
+                # print(e)
+                # func_call_results = AiFunction.Result(str(e))
+                raise e
 
             func_call_results_str = func_call_results.value
 
