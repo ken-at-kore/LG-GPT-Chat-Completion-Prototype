@@ -20,4 +20,5 @@ class SearchForLGProducts(AiFunction):
     
 
     def execute(self, args) -> 'AiFunction.Result':
+        # raise Exception("Got a temporary error. Please try again.") 
         return AiFunction.Result("LG OLED evo G3 55 inch 4K Smart TV 2023, $1917.83")
