@@ -40,14 +40,19 @@ class AiFunction:
 class StreamlitAiBot:
     
     def __init__(self, **kwargs):
+        # Initialize fields
         self.streamlit_page_title = kwargs.get('streamlit_page_title')
         self.openai_model = kwargs.get('openai_model')
         self.model_temperature = kwargs.get('model_temperature')
         self.system_prompt_engineering = kwargs.get('system_prompt_engineering')
         self.welcome_message = kwargs.get('welcome_message')
 
+        # Initialize AiFunctions
         ai_funcs_arg = kwargs.get('ai_functions', None)
         self.ai_functions = AiFunction.Collection(ai_funcs_arg) if ai_funcs_arg is not None else AiFunction.Collection()
+
+        # Initialize chain of thought config
+        self.do_cot = True
 
 
 
@@ -142,6 +147,9 @@ class StreamlitAiBot:
             # Call GPT with the input and process results
             self.call_and_process_gpt()
 
+        else:
+            print("AiBot: Didn't process input.")
+
 
     def call_and_process_gpt(self):
         """
@@ -151,6 +159,12 @@ class StreamlitAiBot:
 
         # Keep track of how often call & processing happens this turn
         self.call_and_process_count = self.call_and_process_count + 1
+
+        # Prepare GPT messages (conversation context). Include chain of thought logging for improved decision making.
+        convo_context = st.session_state["gpt_messages"]
+        if self.do_cot:
+            cot_str = self.do_chain_of_thought_logging()
+            convo_context = convo_context + [{"role": "function", "name": "do_chain_of_thought_logging", "content": cot_str}]
 
         # Prepare assistant response UI
         function_call_name = ""
@@ -163,7 +177,7 @@ class StreamlitAiBot:
             # Prepare OpenAI GPT call parameters
             chat_completion_params = {
                 'model': self.openai_model,
-                'messages': st.session_state["gpt_messages"],
+                'messages': convo_context,
                 'stream': True,
                 'temperature': self.model_temperature
             }
@@ -176,7 +190,7 @@ class StreamlitAiBot:
                 chat_completion_params['functions'] = self.ai_functions.get_function_specs()
 
             # Call OpenAI GPT (Response is streamed)
-            print("AiBot: Calling GPT.")
+            print("AiBot: Calling GPT for chat completion...")
             for response in openai.ChatCompletion.create(**chat_completion_params):
 
                 # Handle content stream
@@ -207,7 +221,7 @@ class StreamlitAiBot:
 
         # Handle function call
         else:
-            print(f'AiBot: Got GPT function call {function_call_name}. Content: "{bot_content_response}". Arguments: {function_call_response}')
+            print(f'AiBot: Got GPT function call "{function_call_name}". Content: "{bot_content_response}". Arguments: {function_call_response}')
             # Store bot content including function call name and arguments
             st.session_state['gpt_messages'].append({"role": "assistant", "content": bot_content_response,
                                                         "function_call": {"name": function_call_name, 
@@ -231,8 +245,46 @@ class StreamlitAiBot:
 
             # Store query results for GPT
             print(f"AiBot: Function execution result: {func_call_results_str}")
-            st.session_state['gpt_messages'].append({"role": "function", "name": "query_lg_dishwasher_products", 
-                                                        "content": func_call_results_str})
+            st.session_state['gpt_messages'].append({"role": "function", "name": function_call_name, 
+                                                     "content": func_call_results_str})
 
             # Recursively call this same function to process the query results
             self.call_and_process_gpt()
+
+
+
+    def do_chain_of_thought_logging(self):
+
+        cot_func_spec = {
+            "name": "do_chain_of_thought_logging",
+            "description": "Log your chain of thought.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "describe_the_context": {
+                        "type": "string",
+                        "description": "In one sentence, describe the conversation context.",
+                    },
+                    "describe_what_you_should_do_next": {
+                        "type": "string",
+                        "description": "In one sentence, describe what you think you should do next."
+                    }
+                },
+                "required": ["describe_the_context", "describe_what_you_should_do_next"],
+            }
+        }
+        funcs = self.ai_functions.get_function_specs() + [cot_func_spec]
+        print("AiBot: Calling GPT for chain of thought...")
+        response = openai.ChatCompletion.create(
+            model=self.openai_model,
+            messages=st.session_state["gpt_messages"],
+            temperature=self.model_temperature,
+            functions=funcs,
+            function_call={"name": "do_chain_of_thought_logging"}
+        )
+        response = json.loads(response.choices[0].message.function_call.arguments)
+        cot_result = f"{response['describe_the_context']} | {response['describe_what_you_should_do_next']}"
+        print(f"AiBot: Chain of thought: {cot_result}")
+        return cot_result
+        
+
