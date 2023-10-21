@@ -56,7 +56,7 @@ class StreamlitAiBot:
         self.convo_memory = StreamlitAiBot.ConvoMemory(self.system_prompt_engineering, self.welcome_message)
 
         # Initialize chain of thought config
-        self.do_cot = True
+        self.do_cot = False
 
 
 
@@ -165,7 +165,8 @@ class StreamlitAiBot:
         convo_context = self.convo_memory.get_messages()
         if self.do_cot:
             cot_result = self.generate_chain_of_thought_logging()
-            convo_context = convo_context + [{"role": "function", "name": "do_chain_of_thought_logging", "content": cot_result}]
+            if cot_result:
+                convo_context += [{"role": "function", "name": "do_chain_of_thought_logging", "content": cot_result}]
 
         # Prepare assistant response UI
         function_call_name = ""
@@ -238,10 +239,11 @@ class StreamlitAiBot:
                 func_call_results = function_obj.execute(json.loads(function_call_response))
                 assert isinstance(func_call_results, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_results)}"
             except Exception as e:
-                print(f"AiBot: Caught function calling error {function_call_name}.\n{e}")
-                self.function_error_count += 1
-                func_call_results = AiFunction.Result(str(e))
-                # raise e
+                print(f"AiBot: Error executing function {function_call_name}.\n{e}")
+                # traceback.print_exc()
+                # self.function_error_count += 1
+                # func_call_results = AiFunction.Result(str(e))
+                raise e
 
             func_call_results_str = func_call_results.value
 
@@ -292,6 +294,7 @@ class StreamlitAiBot:
         except Exception as e:
             print("Caught error when doing chain of thought.")
             traceback.print_exc()
+            return None
         response = json.loads(response.choices[0].message.function_call.arguments)
         cot_result = f"{response['describe_the_context']} | {response['describe_what_you_should_do_next']}"
         print(f"AiBot: Chain of thought: {cot_result}")
