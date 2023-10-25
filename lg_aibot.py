@@ -122,7 +122,7 @@ class StreamlitAiBot:
         """
         bot = st.session_state['ai_bot']
         assert bot is not None, "StreamlitAiBot has not been initialized"
-        assert isinstance(bot, StreamlitAiBot), "Streamlit session ai_bot is not of type StreamlitAiBot"
+        # assert isinstance(bot, StreamlitAiBot), "Streamlit session ai_bot is not of type StreamlitAiBot"
         bot.runInstance()
 
 
@@ -442,6 +442,10 @@ class StreamlitAiBot:
                 except Exception as e:
                     print("Caught error when doing memory compression.")
                     traceback.print_exc()
+
+
+
+
 
 
 
