@@ -4,6 +4,3 @@ pandas
 pydeck
 streamlit
 openai
-pandas
-pandasql
-aibot
