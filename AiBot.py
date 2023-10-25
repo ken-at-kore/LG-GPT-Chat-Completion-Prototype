@@ -5,6 +5,8 @@ import streamlit as st
 from datetime import datetime
 import openai
 import json
+from langchain.llms.openai import OpenAIChat
+from langchain.memory import ConversationSummaryBufferMemory
 
 
 
@@ -14,8 +16,15 @@ class AiFunction:
         assert hasattr(self.__class__, 'execute'), f'{self.__class__.__name__} must define an execute(args) method'
 
     class Result:
-        def __init__(self, val):
-            self.value = val
+        def __init__(self, value:str, pin_to_memory=False):
+            self.value = value
+            self.pin_to_memory = pin_to_memory
+            self.is_an_error_result = False
+
+    class ErrorResult(Result):
+        def __init__(self, error_message:str):
+            super().__init__('Error: ' + error_message)
+            self.is_an_error_result = True
 
     class Collection:
         def __init__(self, ai_functions:List=[]):
@@ -55,8 +64,25 @@ class StreamlitAiBot:
         # Initialize Conversation Memory
         self.convo_memory = StreamlitAiBot.ConvoMemory(self.system_prompt_engineering, self.welcome_message)
 
-        # Initialize chain of thought config
+        # Initialize internal configs
         self.do_cot = False
+        self.max_function_errors_on_turn = 1
+        self.max_main_gpt_calls_on_turn = 4
+
+        # UI input enabled/disabled flag
+        st.session_state["disabled"] = False
+
+        # Set Streamlit app meta info
+        st.set_page_config(
+            page_title=self.streamlit_page_title,
+            page_icon="🤖",
+        )
+        st.title(self.streamlit_page_title)
+
+        # Set the OpenAI key and model
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        if "openai_model" not in st.session_state:
+            st.session_state["openai_model"] = self.openai_model
 
 
 
@@ -105,19 +131,6 @@ class StreamlitAiBot:
 
         print("AiBot: Running.")
 
-        # TODO: Move initializations to constructor
-        # Set Streamlit app meta info
-        st.set_page_config(
-            page_title=self.streamlit_page_title,
-            page_icon="🤖",
-        )
-        st.title(self.streamlit_page_title)
-
-        # Set the OpenAI key and model
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-        if "openai_model" not in st.session_state:
-            st.session_state["openai_model"] = self.openai_model
-
         # Initialize UI messages
         if "messages" not in st.session_state:
             st.session_state.messages = [
@@ -129,14 +142,25 @@ class StreamlitAiBot:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
+        # Define disable UI function (WIP)
+        def disableUI():
+            pass
+            # print('AiBot: Disabling UI')
+            # st.session_state["disabled"] = True
+
         # Get, store and render user message
-        if user_input := st.chat_input("Enter text here"):
+        if user_input := st.chat_input("Enter text here", disabled=st.session_state.disabled, on_submit=disableUI):
             print(f"AiBot: User input: {user_input}")
+
+            # Display user input
             user_input = user_input.replace('$','\$') # Try to sanitize against LaTeX markup
-            self.convo_memory.add_user_msg(user_input) # Add user input to conversation memory
             st.session_state.messages.append({"role": "user", "content": user_input}) # Add it to the UI thread
             with st.chat_message("user"):
                 st.markdown(user_input) # Render it
+
+            # Summarize conversation memory before proceeding
+            self.convo_memory.summarize_memory()
+            self.convo_memory.add_user_msg(user_input) # Add user input to conversation memory
 
             # Initialize processing counters
             self.function_error_count = 0
@@ -145,11 +169,11 @@ class StreamlitAiBot:
             # Call GPT with the input and process results
             self.call_and_process_gpt()
 
-            # Consider compressing conversation memory
-            self.convo_memory.maybe_compress_memory()
-
         else:
             print("AiBot: Didn't process input.")
+
+        # print('AiBot: Enableling UI')
+        # st.session_state["disabled"] = False
 
 
     def call_and_process_gpt(self):
@@ -166,7 +190,7 @@ class StreamlitAiBot:
         if self.do_cot:
             cot_result = self.generate_chain_of_thought_logging()
             if cot_result:
-                convo_context += [{"role": "function", "name": "do_chain_of_thought_logging", "content": cot_result}]
+                convo_context += [{'role': 'function', 'name': 'do_chain_of_thought_logging', 'content': cot_result}]
 
         # Prepare assistant response UI
         function_call_name = ""
@@ -184,20 +208,22 @@ class StreamlitAiBot:
                 'temperature': self.model_temperature
             }
 
-            # Add function calls
-            # TODO: Refactor magic numbers below as configurations
-            if not self.ai_functions.is_empty() and \
-                    self.function_error_count < 1 and \
-                    self.call_and_process_count < 4:
+            # Add function calls & maybe error handling prompt engineering
+            too_many_errors_this_turn = self.function_error_count > self.max_function_errors_on_turn
+            too_many_main_gpt_calls_this_turn = self.call_and_process_count > self.max_main_gpt_calls_on_turn #TODO: Is it > or >=?
+            if not self.ai_functions.is_empty() and not too_many_errors_this_turn and not too_many_main_gpt_calls_this_turn:
                 chat_completion_params['functions'] = self.ai_functions.get_function_specs()
+            if too_many_errors_this_turn:
+                chat_completion_params['messages'] += [{'role': 'system', 'content': 'There are function calling errors. Apologize to the user and ask them to try again.'}]
 
             # Call OpenAI GPT (Response is streamed)
-            print("AiBot: Calling GPT for chat completion...")
+            print("AiBot: Calling GPT & streaming...")
             for response in openai.ChatCompletion.create(**chat_completion_params):
 
                 # Handle content stream
                 if not response.choices[0].delta.get("function_call",""):
                     content_chunk = response.choices[0].delta.get("content", "")
+                    content_chunk = content_chunk.replace('$','\$')
                     bot_content_response += content_chunk
                     full_response += content_chunk
                     message_placeholder.markdown(full_response + "▌")
@@ -236,20 +262,22 @@ class StreamlitAiBot:
             function_obj = self.ai_functions.get_function(function_call_name)
             assert function_obj is not None, f'Function {function_call_name} is not defined in the function collection'
             try:
-                func_call_results = function_obj.execute(json.loads(function_call_response))
-                assert isinstance(func_call_results, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_results)}"
+                func_call_result = function_obj.execute(json.loads(function_call_response))
+                assert isinstance(func_call_result, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_result)}"
             except Exception as e:
                 print(f"AiBot: Error executing function {function_call_name}.\n{e}")
                 # traceback.print_exc()
-                # self.function_error_count += 1
-                # func_call_results = AiFunction.Result(str(e))
+                # func_call_result = AiFunction.ErrorResult(str(e))
                 raise e
 
-            func_call_results_str = func_call_results.value
+            # Process function call result
+            func_call_result_str = func_call_result.value
+            if func_call_result.is_an_error_result:
+                self.function_error_count += 1
 
             # Store query results for GPT
-            print(f"AiBot: Function execution result: {func_call_results_str}")
-            self.convo_memory.add_function_msg(function_call_name, func_call_results_str)
+            print(f"AiBot: Function execution result: {func_call_result_str}")
+            self.convo_memory.add_function_msg(function_call_name, func_call_result_str, func_call_result.pin_to_memory)
 
             # Recursively call this same function to process the query results
             self.call_and_process_gpt()
@@ -310,11 +338,22 @@ class StreamlitAiBot:
 
         def __init__(self, system_prompt_engineering:str = "You are a helpful assistant.",
                      bot_welcome_message:str = None):
+            
             self.system_prompt_engineering = system_prompt_engineering # The primary content for the system message
-            self.convo_summary = None # The conversatoin summary that will be appended to the system message content
+
+            llm = OpenAIChat(model='gpt-3.5-turbo', temperature=0, openai_api_key=openai.api_key)
+            self.langchain_memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=500, return_messages=True,
+                                                                    human_prefix='user', ai_prefix='assistant')
+            
+            self.convo_summary_text = None # The conversatoin summary that will be appended to the system message content
             self.interaction_messages = [] # The messages excluding the first system message
+            self.last_bot_message = None
+            self.function_result_to_pin = None
+            self.pinned_function_result = None
             if bot_welcome_message is not None:
-                self.interaction_messages.append({'role':'assistant', 'content':bot_welcome_message})
+                welcome_gpt_message = {'role':'assistant', 'content':bot_welcome_message}
+                self.last_bot_message = welcome_gpt_message
+                self.langchain_memory.save_context({'input': "<Bot initialized>"}, {'output': bot_welcome_message})
 
         def add_user_msg(self, content:str):
             self.interaction_messages.append({'role':'user', 'content':content})
@@ -326,17 +365,47 @@ class StreamlitAiBot:
                 msg['function_call'] = {'name': function_call_name, 'arguments': function_call_arguments}
             self.interaction_messages.append(msg)
 
-        def add_function_msg(self, function_name:str, content:str):
+        def add_function_msg(self, function_name:str, content:str, pin_func_to_memory:bool=False):
             self.interaction_messages.append({'role':'function', 'name':function_name, 'content':content})
+            if pin_func_to_memory:
+                self.function_result_to_pin = {'name': function_name, 'content': content}
+                self.pinned_function_result = None
 
         def get_messages(self):
             result_system_content = self.system_prompt_engineering
             result_system_content += '\n\nCurrent date: ' + datetime.now().strftime('%Y-%m-%d')
-            if self.convo_summary is not None:
-                result_system_content += "\n\n---\n\nCONVERSATION SUMMARY\n\n" + self.convo_summary
-            return [{'role':'system', 'content':result_system_content}] + self.interaction_messages
+            if self.convo_summary_text is not None:
+                result_system_content += "\n\n---\n\nCONVERSATION SUMMARY\n\n" + self.convo_summary_text
+            if self.pinned_function_result is not None:
+                result_system_content += f"\n\n---\n\nLAST FUNCTION CALL\n\nFunction name: {self.pinned_function_result['name']}"
+                result_system_content += f"\n\nFunction content: {self.pinned_function_result['content']}"
+            result_messages = [{'role':'system', 'content':result_system_content}]
+            if self.last_bot_message is not None:
+                result_messages.append(self.last_bot_message)
+            result_messages += self.interaction_messages
+            return result_messages
         
-        def maybe_compress_memory(self):
+        def summarize_memory(self):
+            if len(self.interaction_messages) > 1:
+                print("AiBot: Summarizing memory...")
+                user_content = next((d['content'] for d in self.interaction_messages if d['role'] == 'user'), None)
+                assistant_content = '\n\n'.join([d['content'] for d in self.interaction_messages if d['role'] == 'assistant'])
+                self.langchain_memory.save_context({'input': user_content}, {'output': assistant_content})
+                self.convo_summary_text = str(self.langchain_memory.load_memory_variables({}))
+                if self.function_result_to_pin is not None:
+                    self.pinned_function_result = self.function_result_to_pin
+                
+                assert self.interaction_messages[-1]['role'] == 'assistant', "Last interaction message was not an assistant message"
+                self.last_bot_message = self.interaction_messages[-1]
+                self.interaction_messages = []
+                print(f"AiBot: Got summary: {self.convo_summary_text}")
+
+
+
+        def kens_convo_summary_algorithm(self):
+            """
+            Deprecated. This will get replaced by the LangChain system.
+            """
             #TODO: Move numbers to configuration
             memory_messages_capacity_threshold = 8
             target_msg_count_to_summarize = 4
@@ -346,8 +415,8 @@ class StreamlitAiBot:
                 compression_system_prompt = 'You are an expert conversation designer and a helpful assistant.'
                 compression_user_prompt = 'Summarize the following GPT conversation. Be specific and include facts. ' \
                                             'But you must write less than 150 words.\n\n'
-                if self.convo_summary is not None:
-                    compression_user_prompt += f'Include this partial summary info in your summary: {self.convo_summary}\n\nNew part of conversation: '
+                if self.convo_summary_text is not None:
+                    compression_user_prompt += f'Include this partial summary info in your summary: {self.convo_summary_text}\n\nNew part of conversation: '
                 compression_user_prompt += json.dumps(target_messages, indent=2)
                 try:
                     response = openai.ChatCompletion.create(
@@ -356,9 +425,11 @@ class StreamlitAiBot:
                                   {'role':'user','content':compression_user_prompt}],
                         temperature=0, #TODO: Ability to configure this
                     )
-                    self.convo_summary = response.choices[0].message.content
+                    self.convo_summary_text = response.choices[0].message.content
                     self.interaction_messages = self.interaction_messages[target_msg_count_to_summarize:] # Remove old non-system messages from memory
-                    print(f"AiBot: Got summary: {self.convo_summary}")
+                    print(f"AiBot: Got summary: {self.convo_summary_text}")
                 except Exception as e:
                     print("Caught error when doing memory compression.")
                     traceback.print_exc()
+
+

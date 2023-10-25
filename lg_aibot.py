@@ -7,7 +7,7 @@ import json
 
 def run():
     if not StreamlitAiBot.is_initialized():
-        StreamlitAiBot.initialize(streamlit_page_title='LG AiBot Prototype',
+        StreamlitAiBot.initialize(streamlit_page_title='LG Chatbot',
                             openai_model='gpt-3.5-turbo',
                             model_temperature=0.25,
                             system_prompt_engineering=open('prompts & content/system prompt.md').read(),
@@ -33,7 +33,11 @@ class SearchForLGProducts(AiFunction):
                     },
                     "product_category": {
                         "type": "string",
-                        "description": "The category of the product. Examples: TVs, Laptops, Refrigerators, Dishwashers"
+                        "description": "The category of the product. Possible values: 'TVs', 'Dishwashers', 'Refrigerators', " \
+                            "'Washers & Dryers', 'Cooking Appliances', 'Air Purifiers', 'Vacuums', 'Air Conditioners', 'Dehumidifiers', " \
+                            "'Projectors', 'Monitors', 'Speakers', 'Appliances Accessories', 'Sound Bars', 'TV & Home Theater Accessories', " \
+                            "'Computing Accessories', 'Wireless Headphones', 'Burners & Drives', 'Laptops', 'Blu-ray & DVD Players', " \
+                            "'Digital Storage', 'Mobile Accessories'"
                     },
                     "price_filter": {
                         "type": "string",
@@ -54,12 +58,17 @@ class SearchForLGProducts(AiFunction):
             price_filter = {"$and":[json.loads(args['price_filter']),{"price":{"$ne":0}}]}
         else:
             price_filter = {"price": {"$ne": 0}}
+        # price_filter = {"$and":[{"$lt": 2000},{"price":{"$ne":0}}]} # For error testing
         embedding_vector = self.get_embedding(search_query)
         product_results = self.query_pinecone_db(embedding_vector, namespace=product_category, filter=price_filter)
-        results_to_show = product_results['matches'][:3]
-        return AiFunction.Result(str(results_to_show))
+        if 'matches' in product_results:
+            results_to_show = product_results['matches'][:2]
+            return AiFunction.Result(str(results_to_show), pin_to_memory=True)
+        elif 'message' in product_results:
+            return AiFunction.ErrorResult(product_results['message'])
+        else:
+            return AiFunction.ErrorResult(str(product_results))
     
-
 
     # Use a Kore.ai Azure service to generate an embedding vector of the search query
     def get_embedding(self, input):
@@ -93,6 +102,7 @@ class SearchForLGProducts(AiFunction):
         }
         if filter is not None:
             payload['filter'] = filter
+
         # Make the POST request
         headers = {"Content-Type":"application/json","Api-Key":"ae2c9a79-7351-4615-a187-ba292601824f"}
         response = requests.post(url, json=payload, headers=headers)
