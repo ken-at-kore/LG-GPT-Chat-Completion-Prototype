@@ -209,11 +209,11 @@ class StreamlitAiBot:
             }
 
             # Add function calls & maybe error handling prompt engineering
-            too_many_errors_this_turn = self.function_error_count > self.max_function_errors_on_turn
-            too_many_main_gpt_calls_this_turn = self.call_and_process_count > self.max_main_gpt_calls_on_turn #TODO: Is it > or >=?
-            if not self.ai_functions.is_empty() and not too_many_errors_this_turn and not too_many_main_gpt_calls_this_turn:
+            too_many_errors = self.function_error_count > self.max_function_errors_on_turn
+            too_many_main_gpt_calls = self.call_and_process_count > self.max_main_gpt_calls_on_turn #TODO: Is it > or >=?
+            if not self.ai_functions.is_empty() and not too_many_errors and not too_many_main_gpt_calls:
                 chat_completion_params['functions'] = self.ai_functions.get_function_specs()
-            if too_many_errors_this_turn:
+            if too_many_errors:
                 chat_completion_params['messages'] += [{'role': 'system', 'content': 'There are function calling errors. Apologize to the user and ask them to try again.'}]
 
             # Call OpenAI GPT (Response is streamed)
@@ -265,10 +265,12 @@ class StreamlitAiBot:
                 func_call_result = function_obj.execute(json.loads(function_call_response))
                 assert isinstance(func_call_result, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_result)}"
             except Exception as e:
-                print(f"AiBot: Error executing function {function_call_name}.\n{e}")
-                # traceback.print_exc()
-                # func_call_result = AiFunction.ErrorResult(str(e))
-                raise e
+                error_info = str(e)
+                print(f"AiBot: Error executing function {function_call_name}.\n{error_info}")
+                traceback.print_exc()
+                func_call_result = AiFunction.ErrorResult(f"Caught exception when executing function {function_call_name}: {error_info}")
+                # exception_traceback = traceback.format_exc()
+                # raise e
 
             # Process function call result
             func_call_result_str = func_call_result.value
@@ -368,7 +370,11 @@ class StreamlitAiBot:
         def add_function_msg(self, function_name:str, content:str, pin_func_to_memory:bool=False):
             self.interaction_messages.append({'role':'function', 'name':function_name, 'content':content})
             if pin_func_to_memory:
-                self.function_result_to_pin = {'name': function_name, 'content': content}
+                self.function_result_to_pin = {'name': function_name, 'result': content}
+                previous_msg = self.interaction_messages[-2]
+                if previous_msg['role'] == 'assistant' and 'function_call' in previous_msg \
+                        and previous_msg['function_call']['name'] == function_name:
+                    self.function_result_to_pin['arguments'] = previous_msg['function_call']['arguments']
                 self.pinned_function_result = None
 
         def get_messages(self):
@@ -377,8 +383,10 @@ class StreamlitAiBot:
             if self.convo_summary_text is not None:
                 result_system_content += "\n\n---\n\nCONVERSATION SUMMARY\n\n" + self.convo_summary_text
             if self.pinned_function_result is not None:
-                result_system_content += f"\n\n---\n\nLAST FUNCTION CALL\n\nFunction name: {self.pinned_function_result['name']}"
-                result_system_content += f"\n\nFunction content: {self.pinned_function_result['content']}"
+                result_system_content += f"\n\n---\n\nLAST FUNCTION CALL"
+                result_system_content += f"\n\nFunction name: {self.pinned_function_result['name']}"
+                result_system_content += f"\nFunction call arguments: {self.pinned_function_result['arguments']}"
+                result_system_content += f"\n\nFunction result: {self.pinned_function_result['result']}"
             result_messages = [{'role':'system', 'content':result_system_content}]
             if self.last_bot_message is not None:
                 result_messages.append(self.last_bot_message)

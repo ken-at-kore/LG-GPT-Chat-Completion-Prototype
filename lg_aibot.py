@@ -27,9 +27,10 @@ class SearchForLGProducts(AiFunction):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "search_query": {
+                    "search_criteria": {
                         "type": "string",
-                        "description": "The search criteria that will be used by a semantic search system to search for LG products.",
+                        "description": "The search criteria that will be used by a semantic search system to search for LG products." \
+                            "Example: Reliable stainless steel dishwasher with adjustable rack and QuadWash",
                     },
                     "product_category": {
                         "type": "string",
@@ -52,7 +53,7 @@ class SearchForLGProducts(AiFunction):
 
     def execute(self, args) -> 'AiFunction.Result':
 
-        search_query = args['search_query']
+        search_query = args['search_criteria']
         product_category = args['product_category']
         if 'price_filter' in args:
             price_filter = {"$and":[json.loads(args['price_filter']),{"price":{"$ne":0}}]}
