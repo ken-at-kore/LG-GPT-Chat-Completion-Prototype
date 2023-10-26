@@ -2,6 +2,11 @@
 
 This prototype demonstrates a chatbot experience with an LG sales associate personality. This bot leverages the ChatGPT API Function Calling capabilities to give the AI the ability to query a product database to load product data into its LLM context window. This lets the AI independently retrieve the data it needs to accurately answer the user's LG product questions.
 
+[Try out the chatbot](https://lg-chatbot.streamlit.app)
+
+<img width="768" alt="LG AIBot screenshot" src="https://github.com/ken-at-kore/LG-AiBot-Prototype/assets/146371853/31bedf46-9f0d-441a-913a-694068680a1f">
+
+
 ## ChatGPT Function Calling
 - Explanation (OpenAI blog post): https://openai.com/blog/function-calling-and-other-api-updates
 
@@ -14,7 +19,7 @@ The prototype uses a service and Python-based web framework called Streamlit. ht
 
 - Streamlit tutorial: Build conversational apps: https://docs.streamlit.io/knowledge-base/tutorials/build-conversational-apps
 
-## AiBot Framework architecture & features
+## AiBot framework architecture & features
 The prototype is based on an AiBot framework developed by Ken Grafals (Kore.ai). It implements the following architectures and design patterns:
 
 ### MRKL System / LLM Agent
@@ -27,3 +32,9 @@ While the AiBot framework has this capability, it is currently disabled in the L
 
 ### Conversation summary buffer
 The AiBot framework uses the LangChain memory Python module in order to implement the LangChain Conversation Summary Buffer Memory. This feature maintains a buffer of recent interactions, but instead of discarding old interactions, it compiles them into a summary with an LLM, utilizing both the buffer and the summary for conversation context. [LangChain Conversation Summary Buffer](https://python.langchain.com/docs/modules/memory/types/summary_buffer)
+
+### Prototype architecture diagram
+![AIBot Architecture](https://github.com/ken-at-kore/LG-AiBot-Prototype/assets/146371853/28980e0b-30a6-482d-a81f-58c60656e9a2)
+
+### MRKL System execution loops
+![MRKL Loops](https://github.com/ken-at-kore/LG-AiBot-Prototype/assets/146371853/939a0bb6-08b5-499e-a59e-bfc675b07e8b)
