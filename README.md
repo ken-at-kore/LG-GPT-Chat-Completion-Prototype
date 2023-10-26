@@ -17,14 +17,13 @@ The prototype uses a service and Python-based web framework called Streamlit. ht
 ## AiBot Framework architecture & features
 The prototype is based on an AiBot framework developed by Ken Grafals (Kore.ai). It implements the following architectures and design patterns:
 
-### MRKL
+### MRKL System / LLM Agent
 MRKL systems aim to create a hybrid architecture that combines the strengths of large language models with external knowledge sources and discrete reasoning capabilities. The goal is to enhance the performance and reliability of AI systems by integrating neural networks with symbolic reasoning. Developed by AI21 Labs, MRKL strives to usher in a new era of more robust and versatile AI applications. [Research paper](https://arxiv.org/abs/2205.00445)
 
-### ReAct
-ReAct synergizes reasoning and acting capabilities in Large Language Models (LLMs), traditionally studied separately, to enhance interactive decision-making and language understanding tasks. It interleaves reasoning traces and task-specific actions, allowing models to interact with external sources and improve human interpretability and task-solving effectiveness. ReAct prompts, comprising few-shot task-solving trajectories with human-written text reasoning traces and actions, are intuitive to design and achieve state-of-the-art performance across various tasks like question answering and online shopping​. [Research paper](https://react-lm.github.io)
+### Chain of thought & ReAct
+Chain of Thought (CoT) enhances LLMs by guiding them through structured reasoning steps for better problem-solving. ReAct builds on this by interleaving reasoning with task-specific actions, enabling interaction with external sources. It uses chain of thought reasoning traces to enhance decision making capabilities. [CoT research paper. ](https://arxiv.org/abs/2201.11903) [ReAct Research paper.](https://react-lm.github.io)
 
-### Chain of thought
-"Chain of Thought" is a technique that improves the reasoning capabilities of large language models by guiding them through a series of intermediate reasoning steps. This approach allows the model to systematically work through complex problems, enhancing its problem-solving abilities. Developed by Google Research's Brain Team, the method demonstrates that large language models can perform more effective reasoning when structured in this way. [Research paper](https://arxiv.org/abs/2201.11903)
+While the AiBot framework has this capability, it is currently disabled in the LG application. The current version of the chain of thought feature doesn't seem to improve decision making.
 
 ### Conversation summary buffer
-While the AiBot framework does not use LangChain, it does implement a feature akin to LangChain's Conversation Summary Buffer. This feature maintains a buffer of recent interactions, but unlike merely discarding old interactions, it compiles them into a summary, utilizing both the buffer and the summary for various purposes. [LangChain Conversation Summary Buffer](https://python.langchain.com/docs/modules/memory/types/summary_buffer)
+The AiBot framework uses the LangChain memory Python module in order to implement the LangChain Conversation Summary Buffer Memory. This feature maintains a buffer of recent interactions, but instead of discarding old interactions, it compiles them into a summary with an LLM, utilizing both the buffer and the summary for conversation context. [LangChain Conversation Summary Buffer](https://python.langchain.com/docs/modules/memory/types/summary_buffer)
