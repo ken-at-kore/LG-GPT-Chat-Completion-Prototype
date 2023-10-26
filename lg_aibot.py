@@ -51,43 +51,6 @@ class AiFunction:
 
 
 class StreamlitAiBot:
-    
-    def __init__(self, **kwargs):
-        # Initialize fields
-        self.streamlit_page_title = kwargs.get('streamlit_page_title')
-        self.openai_model = kwargs.get('openai_model')
-        self.model_temperature = kwargs.get('model_temperature')
-        self.system_prompt_engineering = kwargs.get('system_prompt_engineering')
-        self.welcome_message = kwargs.get('welcome_message')
-
-        # Initialize AiFunctions
-        ai_funcs_arg = kwargs.get('ai_functions', None)
-        self.ai_functions = AiFunction.Collection(ai_funcs_arg) if ai_funcs_arg is not None else AiFunction.Collection()
-
-        # Initialize Conversation Memory
-        self.convo_memory = StreamlitAiBot.ConvoMemory(self.system_prompt_engineering, self.welcome_message)
-
-        # Initialize internal configs
-        self.do_cot = False
-        self.max_function_errors_on_turn = 1
-        self.max_main_gpt_calls_on_turn = 4
-
-        # UI input enabled/disabled flag
-        st.session_state["disabled"] = False
-
-        # Set Streamlit app meta info
-        st.set_page_config(
-            page_title=self.streamlit_page_title,
-            page_icon="🤖",
-        )
-        st.title(self.streamlit_page_title)
-
-        # Set the OpenAI key and model
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-        if "openai_model" not in st.session_state:
-            st.session_state["openai_model"] = self.openai_model
-
-
 
     @staticmethod
     def initialize(streamlit_page_title:str="My AiBot",
@@ -115,24 +78,59 @@ class StreamlitAiBot:
 
 
 
+    def __init__(self, **kwargs):
+        # Initialize fields
+        self.streamlit_page_title = kwargs.get('streamlit_page_title')
+        self.openai_model = kwargs.get('openai_model')
+        self.model_temperature = kwargs.get('model_temperature')
+        self.system_prompt_engineering = kwargs.get('system_prompt_engineering')
+        self.welcome_message = kwargs.get('welcome_message')
+
+        # Initialize AiFunctions
+        ai_funcs_arg = kwargs.get('ai_functions', None)
+        self.ai_functions = AiFunction.Collection(ai_funcs_arg) if ai_funcs_arg is not None else AiFunction.Collection()
+
+        # Initialize Conversation Memory
+        self.convo_memory = StreamlitAiBot.ConvoMemory(self.system_prompt_engineering, self.welcome_message)
+
+        # Initialize internal configs
+        self.do_cot = False
+        self.max_function_errors_on_turn = 1
+        self.max_main_gpt_calls_on_turn = 4
+
+        # Set the OpenAI key and model
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        if "openai_model" not in st.session_state:
+            st.session_state["openai_model"] = self.openai_model
+
+
+
     @staticmethod
-    def run():
+    def runBot():
         """
         Get the AiBot from the Streamlit session and run it.
         """
         bot = st.session_state['ai_bot']
         assert bot is not None, "StreamlitAiBot has not been initialized"
         # assert isinstance(bot, StreamlitAiBot), "Streamlit session ai_bot is not of type StreamlitAiBot" # This assertion always fails when deployed to Streamlit Cloud for some reason
-        bot.runInstance()
+        bot.run()
 
 
 
-    def runInstance(self):
+    def run(self):
         """
         Run AiBot's main loop. The bot takes a turn.
         """
 
         print("AiBot: Running.")
+
+        # Display title and icon
+        # (This needs to happen on every Streamlit run)
+        st.set_page_config(
+            page_title=self.streamlit_page_title,
+            page_icon="🤖",
+        )
+        st.title(self.streamlit_page_title)
 
         # Initialize UI messages
         if "messages" not in st.session_state:
@@ -145,15 +143,12 @@ class StreamlitAiBot:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        # Define disable UI function (WIP)
-        def disableUI():
-            pass
-            # print('AiBot: Disabling UI')
-            # st.session_state["disabled"] = True
-
         # Get, store and render user message
-        if user_input := st.chat_input("Enter text here", disabled=st.session_state.disabled, on_submit=disableUI):
+        if user_input := st.chat_input("Enter text here", key="real_input"):
             print(f"AiBot: User input: {user_input}")
+
+            # Disable the input UI
+            st.chat_input(" . . .", key="disabled_input", disabled=True)
 
             # Display user input
             user_input = user_input.replace('$','\$') # Try to sanitize against LaTeX markup
@@ -172,11 +167,11 @@ class StreamlitAiBot:
             # Call GPT with the input and process results
             self.call_and_process_gpt()
 
+            # Re-run the Streamlit app to re-enable the input UI
+            st.rerun()
+
         else:
             print("AiBot: Didn't process input.")
-
-        # print('AiBot: Enableling UI')
-        # st.session_state["disabled"] = False
 
 
     def call_and_process_gpt(self):
@@ -460,7 +455,7 @@ def run():
                             welcome_message=open('prompts & content/welcome message.md').read(),
                             ai_functions=[SearchForLGProducts()]
         )
-    StreamlitAiBot.run()
+    StreamlitAiBot.runBot()
 
 
 
