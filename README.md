@@ -2,6 +2,11 @@
 
 This prototype demonstrates a chatbot experience with an LG sales associate personality. This bot leverages the ChatGPT API Function Calling capabilities to give the AI the ability to query a product database to load product data into its LLM context window. This lets the AI independently retrieve the data it needs to accurately answer the user's LG product questions.
 
+[Try out the chatbot](https://lg-chatbot.streamlit.app)
+
+<img width="768" alt="LG AIBot screenshot" src="https://github.com/ken-at-kore/LG-AiBot-Prototype/assets/146371853/31bedf46-9f0d-441a-913a-694068680a1f">
+
+
 ## ChatGPT Function Calling
 - Explanation (OpenAI blog post): https://openai.com/blog/function-calling-and-other-api-updates
 
