@@ -1,13 +1,11 @@
 import requests
 import json
-
 import typing
 from typing import List
 import traceback
 import streamlit as st
 from datetime import datetime
 import openai
-import json
 from langchain.llms.openai import OpenAIChat
 from langchain.memory import ConversationSummaryBufferMemory
 
@@ -451,7 +449,7 @@ def run():
         StreamlitAiBot.initialize(streamlit_page_title='LG Chatbot',
                             # openai_model='gpt-4',
                             openai_model='gpt-3.5-turbo',
-                            model_temperature=0.25,
+                            model_temperature=0.1,
                             system_prompt_engineering=open('prompts & content/system prompt.md').read(),
                             welcome_message=open('prompts & content/welcome message.md').read(),
                             ai_functions=[SearchForLGProducts()]
@@ -508,13 +506,19 @@ class SearchForLGProducts(AiFunction):
         # price_filter = {"$and":[{"$lt": 2000},{"price":{"$ne":0}}]} # For error testing
         embedding_vector = self.get_embedding(search_query)
         product_results = self.query_pinecone_db(embedding_vector, namespace=product_category, filter=price_filter)
-        if 'matches' in product_results:
-            results_to_show = product_results['matches'][:2]
-            return AiFunction.Result(str(results_to_show), pin_to_memory=True)
-        elif 'message' in product_results:
-            return AiFunction.ErrorResult(product_results['message'])
-        else:
-            return AiFunction.ErrorResult(str(product_results))
+
+        if 'matches' not in product_results:
+            if 'message' in product_results:
+                return AiFunction.ErrorResult(product_results['message'])
+            else:
+                return AiFunction.ErrorResult(str(product_results))
+
+        vector_db_result = product_results['matches'][0]
+        sku = vector_db_result['metadata']['sku']
+        dynamodb_info = self.get_dynamo_db_product_details(sku)
+        vector_db_result['additional_info'] = dynamodb_info
+
+        return AiFunction.Result(str(vector_db_result), pin_to_memory=True)
     
 
     # Use a Kore.ai Azure service to generate an embedding vector of the search query
@@ -556,6 +560,31 @@ class SearchForLGProducts(AiFunction):
         
         # Return the response (can be parsed as needed)
         return response.json()
+    
+
+
+    def get_dynamo_db_product_details(self, sku:str):
+        # Endpoint URL
+        url = "https://retailassist-poc.kore.ai/pimWrapper/v1/getItems"
+
+        # Parameters
+        headers = {
+            'Stage': 'dev',
+            'x-secret-key': 'edc6f2b0-0b7a-11ec-82a8-0242ac130003',
+            'Content-Type': 'application/json'
+        }
+        data = {
+            "ids": [sku],
+            "PIMEnv": "lg-pim-uat"
+        }
+
+        # Make the POST request and parse it
+        response = requests.post(url, headers=headers, json=data)
+        parsed_response = json.loads(response.text)
+        product_info = parsed_response[sku]
+        product_info['product_url'] = 'https://www.lg.com/us' + product_info['pdpUrl']
+        del product_info['pdpUrl']
+        return product_info
     
 
 
