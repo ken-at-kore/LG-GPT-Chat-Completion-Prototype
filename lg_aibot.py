@@ -6,7 +6,7 @@ import traceback
 import streamlit as st
 from datetime import datetime
 import openai
-from langchain.llms.openai import OpenAIChat
+from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
 
 
@@ -53,6 +53,7 @@ class StreamlitAiBot:
     @staticmethod
     def initialize(streamlit_page_title:str="My AiBot",
                  openai_model:str="gpt-3.5-turbo",
+                 openai_api_key:str=None,
                  model_temperature:float=0.25,
                  system_prompt_engineering:str='You are a helpful assistant.',
                  welcome_message:str='Hello! How can I assist you today?',
@@ -61,6 +62,7 @@ class StreamlitAiBot:
         print("AiBot: Initializing session.")
         bot = StreamlitAiBot(streamlit_page_title=streamlit_page_title,
                              openai_model=openai_model,
+                             openai_api_key=openai_api_key,
                              model_temperature=model_temperature,
                              system_prompt_engineering=system_prompt_engineering,
                              welcome_message=welcome_message,
@@ -80,6 +82,7 @@ class StreamlitAiBot:
         # Initialize fields
         self.streamlit_page_title = kwargs.get('streamlit_page_title')
         self.openai_model = kwargs.get('openai_model')
+        openai_api_key = kwargs.get('openai_api_key')
         self.model_temperature = kwargs.get('model_temperature')
         self.system_prompt_engineering = kwargs.get('system_prompt_engineering')
         self.welcome_message = kwargs.get('welcome_message')
@@ -97,9 +100,14 @@ class StreamlitAiBot:
         self.max_main_gpt_calls_on_turn = 4
 
         # Set the OpenAI key and model
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
-        if "openai_model" not in st.session_state:
+        if openai_api_key is not None and openai_api_key != '':
+            openai.api_key = openai_api_key
             st.session_state["openai_model"] = self.openai_model
+            print("INITIALIZING WITH USER KEY")
+        else:
+            openai.api_key = st.secrets["OPENAI_API_KEY"]
+            st.session_state["openai_model"] = self.openai_model
+            print("INITIALIZING WITH CONFIG KEY")
 
 
 
@@ -122,12 +130,8 @@ class StreamlitAiBot:
 
         print("AiBot: Running.")
 
-        # Display title and icon
+        # Display title
         # (This needs to happen on every Streamlit run)
-        st.set_page_config(
-            page_title=self.streamlit_page_title,
-            page_icon="🤖",
-        )
         st.title(self.streamlit_page_title)
 
         # Initialize UI messages
@@ -339,7 +343,7 @@ class StreamlitAiBot:
             
             self.system_prompt_engineering = system_prompt_engineering # The primary content for the system message
 
-            llm = OpenAIChat(model='gpt-3.5-turbo', temperature=0, openai_api_key=openai.api_key)
+            llm = ChatOpenAI(model='gpt-3.5-turbo', temperature=0, openai_api_key=openai.api_key)
             self.langchain_memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=500, return_messages=True,
                                                                     human_prefix='user', ai_prefix='assistant')
             
@@ -441,20 +445,6 @@ class StreamlitAiBot:
 
 
 
-
-
-
-def run():
-    if not StreamlitAiBot.is_initialized():
-        StreamlitAiBot.initialize(streamlit_page_title='LG Chatbot',
-                            # openai_model='gpt-4',
-                            openai_model='gpt-3.5-turbo',
-                            model_temperature=0.1,
-                            system_prompt_engineering=open('prompts & content/system prompt.md').read(),
-                            welcome_message=open('prompts & content/welcome message.md').read(),
-                            ai_functions=[SearchForLGProducts()]
-        )
-    StreamlitAiBot.runBot()
 
 
 
@@ -586,6 +576,51 @@ class SearchForLGProducts(AiFunction):
         del product_info['pdpUrl']
         return product_info
     
+
+
+def run():
+
+    # Set Streamlit page configs
+    if not StreamlitAiBot.is_initialized():
+        page_title = 'LG Chatbot'
+        st.set_page_config(
+            page_title=page_title,
+            page_icon="🤖",
+        )
+
+    # Load the sidebar
+    # with st.sidebar:
+    #     user_openai_api_key = st.text_input("OpenAI API Key for GPT-4", key="user_api_key")
+    #     print(f"Got {user_openai_api_key}")
+    #     openai_api_key = user_openai_api_key
+    #     "By default, this bot uses GPT 3.5 Turbo. For better intelligence, you can test with GPT-4 by providing an OpenAI API key."
+    #     "[Get an OpenAI API key](https://platform.openai.com/account/api-keys)"
+
+
+    # Initialize the AIBot
+    # if not StreamlitAiBot.is_initialized():
+
+        openai_model = 'gpt-3.5-turbo'
+        openai_api_key = None
+
+        query_params = st.experimental_get_query_params()
+        if 'gpt4-key' in query_params:
+            openai_model = 'gpt-4'
+            openai_api_key = query_params['gpt4-key'][0]
+
+        StreamlitAiBot.initialize(streamlit_page_title=page_title,
+                            # openai_model='gpt-4',
+                            openai_model=openai_model,
+                            openai_api_key=openai_api_key,
+                            model_temperature=0.1,
+                            system_prompt_engineering=open('prompts & content/system prompt.md').read(),
+                            welcome_message=open('prompts & content/welcome message.md').read(),
+                            ai_functions=[SearchForLGProducts()]
+        )
+
+    # Run the AIBot
+    StreamlitAiBot.runBot()
+
 
 
 if __name__ == "__main__":
