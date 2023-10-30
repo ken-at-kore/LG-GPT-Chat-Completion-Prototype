@@ -103,11 +103,11 @@ class StreamlitAiBot:
         if openai_api_key is not None and openai_api_key != '':
             openai.api_key = openai_api_key
             st.session_state["openai_model"] = self.openai_model
-            print("INITIALIZING WITH USER KEY")
+            print("AiBot: Initializing with user key")
         else:
             openai.api_key = st.secrets["OPENAI_API_KEY"]
             st.session_state["openai_model"] = self.openai_model
-            print("INITIALIZING WITH CONFIG KEY")
+            print("AiBot: Initializing with config key")
 
 
 
@@ -133,6 +133,7 @@ class StreamlitAiBot:
         # Display title
         # (This needs to happen on every Streamlit run)
         st.title(self.streamlit_page_title)
+        st.caption(f"Model: {st.session_state['openai_model']}")
 
         # Initialize UI messages
         if "messages" not in st.session_state:
