@@ -449,6 +449,7 @@ class StreamlitAiBot:
 def run():
     if not StreamlitAiBot.is_initialized():
         StreamlitAiBot.initialize(streamlit_page_title='LG Chatbot',
+                            # openai_model='gpt-4',
                             openai_model='gpt-3.5-turbo',
                             model_temperature=0.25,
                             system_prompt_engineering=open('prompts & content/system prompt.md').read(),
@@ -481,6 +482,10 @@ class SearchForLGProducts(AiFunction):
                             "'Computing Accessories', 'Wireless Headphones', 'Burners & Drives', 'Laptops', 'Blu-ray & DVD Players', " \
                             "'Digital Storage', 'Mobile Accessories'"
                     },
+                    # "kitchen_appliance_color_preference": {
+                    #     "type": "string",
+                    #     "description": "For kitchen appliances like dishwashers and refrigerators you will ask for the user's color preference before usings this function."
+                    # },
                     "price_filter": {
                         "type": "string",
                         "description": 'MongoDB Query Language (MQL) query to filter products by price. Example: {"price":{"$lt":500}}'
