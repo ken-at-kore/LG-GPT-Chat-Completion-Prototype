@@ -103,11 +103,11 @@ class StreamlitAiBot:
         if openai_api_key is not None and openai_api_key != '':
             openai.api_key = openai_api_key
             st.session_state["openai_model"] = self.openai_model
-            print("AiBot: Initializing with user key")
+            print("AiBot: Using user OpenAI API key.")
         else:
             openai.api_key = st.secrets["OPENAI_API_KEY"]
             st.session_state["openai_model"] = self.openai_model
-            print("AiBot: Initializing with config key")
+            print("AiBot: Using configured OpenAI API key.")
 
 
 
@@ -151,7 +151,7 @@ class StreamlitAiBot:
             print(f"AiBot: User input: {user_input}")
 
             # Disable the input UI
-            st.chat_input(" . . .", key="disabled_input", disabled=True)
+            # st.chat_input(" . . .", key="disabled_input", disabled=True) #TODO: This isn't working
 
             # Display user input
             user_input = user_input.replace('$','\$') # Try to sanitize against LaTeX markup
@@ -171,7 +171,7 @@ class StreamlitAiBot:
             self.call_and_process_gpt()
 
             # Re-run the Streamlit app to re-enable the input UI
-            st.rerun()
+            # st.rerun() #TODO: This isn't working
 
         else:
             print("AiBot: Didn't process input.")
@@ -581,34 +581,25 @@ class SearchForLGProducts(AiFunction):
 
 def run():
 
-    # Set Streamlit page configs
+    # Maybe initialize the bot
     if not StreamlitAiBot.is_initialized():
+
+        # Setup Streamlit page configs
         page_title = 'LG Chatbot'
         st.set_page_config(
             page_title=page_title,
             page_icon="🤖",
         )
 
-    # Load the sidebar
-    # with st.sidebar:
-    #     user_openai_api_key = st.text_input("OpenAI API Key for GPT-4", key="user_api_key")
-    #     print(f"Got {user_openai_api_key}")
-    #     openai_api_key = user_openai_api_key
-    #     "By default, this bot uses GPT 3.5 Turbo. For better intelligence, you can test with GPT-4 by providing an OpenAI API key."
-    #     "[Get an OpenAI API key](https://platform.openai.com/account/api-keys)"
-
-
-    # Initialize the AIBot
-    # if not StreamlitAiBot.is_initialized():
-
+        # Check for a GPT-4 key in ULR parameters
         openai_model = 'gpt-3.5-turbo'
         openai_api_key = None
-
         query_params = st.experimental_get_query_params()
         if 'gpt4-key' in query_params:
             openai_model = 'gpt-4'
             openai_api_key = query_params['gpt4-key'][0]
 
+        # Initialize the AIBot
         StreamlitAiBot.initialize(streamlit_page_title=page_title,
                             # openai_model='gpt-4',
                             openai_model=openai_model,
