@@ -1,13 +1,14 @@
 import requests
 import json
-import typing
 from typing import List
+from typing import Tuple
 import traceback
 import streamlit as st
 from datetime import datetime
 import openai
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
+from openai.error import Timeout
 
 
 
@@ -194,19 +195,16 @@ class StreamlitAiBot:
                 convo_context += [{'role': 'function', 'name': 'do_chain_of_thought_logging', 'content': cot_result}]
 
         # Prepare assistant response UI
-        function_call_name = ""
-        function_call_response = ""
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            full_response = ""
-            bot_content_response = ""
 
             # Prepare OpenAI GPT call parameters
             chat_completion_params = {
                 'model': self.openai_model,
                 'messages': convo_context,
                 'stream': True,
-                'temperature': self.model_temperature
+                'temperature': self.model_temperature,
+                'request_timeout': 4
             }
 
             # Add function calls & maybe error handling prompt engineering
@@ -219,23 +217,24 @@ class StreamlitAiBot:
 
             # Call OpenAI GPT (Response is streamed)
             print("AiBot: Calling GPT & streaming...")
-            for response in openai.ChatCompletion.create(**chat_completion_params):
+            gpt_call_count_this_round = 0
+            bot_content_response = function_call_name = function_call_response = full_response = None
+            while True:
+                try:
+                    gpt_call_count_this_round += 1
+                    bot_content_response, function_call_name, function_call_response, full_response = self.call_gpt(chat_completion_params, message_placeholder)
+                    break
 
-                # Handle content stream
-                if not response.choices[0].delta.get("function_call",""):
-                    content_chunk = response.choices[0].delta.get("content", "")
-                    content_chunk = content_chunk.replace('$','\$')
-                    bot_content_response += content_chunk
-                    full_response += content_chunk
-                    message_placeholder.markdown(full_response + "▌")
-                
-                # Handle function call stream
-                else:
-                    call = response.choices[0].delta.function_call
-                    if function_call_name == "":
-                        function_call_name = call.get("name", "")
-                    function_call_response += call.get("arguments", "")
-
+                # Handle timeouts
+                except Timeout as e:
+                    if gpt_call_count_this_round < 3:
+                        print("AiBot: GPT call timed out. Trying again.")
+                    else:
+                        print("AiBot: GPT call timed out too many times. Displaying error message.")
+                        error_message = "Sorry, there was an network error. Please try again."
+                        full_response = bot_content_response = error_message
+                        break
+                    
             if not function_call_response:
                 message_placeholder.markdown(full_response)
             else: 
@@ -287,6 +286,34 @@ class StreamlitAiBot:
 
 
 
+    def call_gpt(self, chat_completion_params:dict, message_placeholder) -> Tuple[str, str, str]:
+
+        bot_content_response = ""
+        function_call_name = ""
+        function_call_response = ""
+        full_response = ""
+
+        for response in openai.ChatCompletion.create(**chat_completion_params):
+
+            # Handle content stream
+            if not response.choices[0].delta.get("function_call",""):
+                content_chunk = response.choices[0].delta.get("content", "")
+                content_chunk = content_chunk.replace('$','\$')
+                bot_content_response += content_chunk
+                full_response += content_chunk
+                message_placeholder.markdown(full_response + "▌")
+            
+            # Handle function call stream
+            else:
+                call = response.choices[0].delta.function_call
+                if function_call_name == "":
+                    function_call_name = call.get("name", "")
+                function_call_response += call.get("arguments", "")
+
+        return (bot_content_response, function_call_name, function_call_response, full_response)
+    
+    
+    
     def generate_chain_of_thought_logging(self) -> str:
         """"
         Implements the Chain of Thought technique by having the bot explain the context and then the next step.
