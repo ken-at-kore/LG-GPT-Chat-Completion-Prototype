@@ -581,7 +581,7 @@ class SearchForLGProducts(AiFunction):
 
 def run():
 
-    # Maybe initialize the bot
+    # Initialize the bot (if not initialized)
     if not StreamlitAiBot.is_initialized():
 
         # Setup Streamlit page configs
@@ -591,13 +591,22 @@ def run():
             page_icon="🤖",
         )
 
+        # Get URL/query parameters for the config steps below
+        query_params = st.experimental_get_query_params()
+
         # Check for a GPT-4 key in ULR parameters
         openai_model = 'gpt-3.5-turbo'
         openai_api_key = None
-        query_params = st.experimental_get_query_params()
         if 'gpt4-key' in query_params:
             openai_model = 'gpt-4'
             openai_api_key = query_params['gpt4-key'][0]
+
+        # Configure system prompt. Maybe include mock user data (based on URL parameter)
+        system_prompt_engineering=open('prompts & content/system prompt.md').read()
+        if 'user-data' in query_params:
+            mock_user_data_id = query_params['user-data'][0]
+            if mock_user_data_id == 'mock1':
+                system_prompt_engineering += open('prompts & content/mock user data.md').read()
 
         # Initialize the AIBot
         StreamlitAiBot.initialize(streamlit_page_title=page_title,
@@ -605,7 +614,7 @@ def run():
                             openai_model=openai_model,
                             openai_api_key=openai_api_key,
                             model_temperature=0.1,
-                            system_prompt_engineering=open('prompts & content/system prompt.md').read(),
+                            system_prompt_engineering=system_prompt_engineering,
                             welcome_message=open('prompts & content/welcome message.md').read(),
                             ai_functions=[SearchForLGProducts()]
         )
