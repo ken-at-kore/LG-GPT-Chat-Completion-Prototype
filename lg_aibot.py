@@ -265,10 +265,10 @@ class StreamlitAiBot:
                 func_call_result = function_obj.execute(json.loads(function_call_response))
                 assert isinstance(func_call_result, AiFunction.Result), f"func_call_results for {function_call_name} must be of type AiFunction.Result, not {type(func_call_result)}"
             except Exception as e:
-                error_info = str(e)
-                print(f"AiBot: Error executing function {function_call_name}.\n{error_info}")
+                error_info = f"{e.__class__.__name__}: {str(e)}"
+                print(f"AiBot: Error executing function {function_call_name}: '{error_info}'")
                 traceback.print_exc()
-                func_call_result = AiFunction.ErrorResult(f"Caught exception when executing function {function_call_name}: {error_info}")
+                func_call_result = AiFunction.ErrorResult(f"Caught exception when executing function {function_call_name}: '{error_info}'")
                 # exception_traceback = traceback.format_exc()
                 # raise e
 
@@ -476,12 +476,50 @@ class StreamlitAiBot:
 
 
 
+# ------------------------------------------------------------------ #
+# ------------------------ LG SPECIFIC CODE ------------------------ #
+
+# LG AI FUNCTIONS
+
+def get_product_data_from_dynamo_db(sku:str, reduce_to_summary_info:bool = False):
+    """" Get LG product data from the DynamoDB."""
+
+    # Endpoint URL
+    url = "https://retailassist-poc.kore.ai/pimWrapper/v1/getItems"
+    if not reduce_to_summary_info:
+        url += '?metaData="true"'
+
+    # Parameters
+    headers = {
+        'Stage': 'dev',
+        'x-secret-key': 'edc6f2b0-0b7a-11ec-82a8-0242ac130003',
+        'Content-Type': 'application/json'
+    }
+    data = {
+        "ids": [sku],
+        "PIMEnv": "lg-pim-uat"
+    }
+    if not reduce_to_summary_info:
+        data["metaData"] = "true"
+
+    # Make the POST request and parse it
+    response = requests.post(url, headers=headers, json=data)
+    parsed_response = json.loads(response.text)
+    if sku in parsed_response:
+        product_info = parsed_response[sku]
+    else:
+        product_info = None
+
+    return product_info
+
+
+
 class SearchForLGProducts(AiFunction):
 
     def get_spec(self):
         return {
             "name": "search_for_lg_products",
-            "description": "Search for an LG product.",
+            "description": "Search for LG products.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -498,10 +536,6 @@ class SearchForLGProducts(AiFunction):
                             "'Computing Accessories', 'Wireless Headphones', 'Burners & Drives', 'Laptops', 'Blu-ray & DVD Players', " \
                             "'Digital Storage', 'Mobile Accessories'"
                     },
-                    # "kitchen_appliance_color_preference": {
-                    #     "type": "string",
-                    #     "description": "For kitchen appliances like dishwashers and refrigerators you will ask for the user's color preference before usings this function."
-                    # },
                     "price_filter": {
                         "type": "string",
                         "description": 'MongoDB Query Language (MQL) query to filter products by price. Example: {"price":{"$lt":500}}'
@@ -510,18 +544,17 @@ class SearchForLGProducts(AiFunction):
                 "required": ["search_query", "product_category"],
             }
         }
-    
-
 
     def execute(self, args) -> 'AiFunction.Result':
 
         search_query = args['search_criteria']
         product_category = args['product_category']
+
         if 'price_filter' in args:
             price_filter = {"$and":[json.loads(args['price_filter']),{"price":{"$ne":0}}]}
         else:
             price_filter = {"price": {"$ne": 0}}
-        # price_filter = {"$and":[{"$lt": 2000},{"price":{"$ne":0}}]} # For error testing
+
         embedding_vector = self.get_embedding(search_query)
         product_results = self.query_pinecone_db(embedding_vector, namespace=product_category, filter=price_filter)
 
@@ -531,14 +564,23 @@ class SearchForLGProducts(AiFunction):
             else:
                 return AiFunction.ErrorResult(str(product_results))
 
-        vector_db_result = product_results['matches'][0]
-        sku = vector_db_result['metadata']['sku']
-        dynamodb_info = self.get_dynamo_db_product_details(sku)
-        vector_db_result['additional_info'] = dynamodb_info
+        results = []
+        for vector_db_match in product_results['matches'][:6]:
+            sku = vector_db_match['metadata']['sku']
+            dynamo_product_info = get_product_data_from_dynamo_db(sku, reduce_to_summary_info=True)
 
-        return AiFunction.Result(str(vector_db_result), pin_to_memory=True)
+            if not dynamo_product_info:
+                print(f"LG AiBot: Warning: Couldn't find DynamoDB product info for {sku}")
+                continue
+
+            dynamo_product_info['product_url'] = 'https://www.lg.com/us' + dynamo_product_info['pdpUrl']
+            del dynamo_product_info['pdpUrl']
+            del dynamo_product_info['imageUrl']
+
+            results.append(dynamo_product_info)
+
+        return AiFunction.Result(str(results))
     
-
     # Use a Kore.ai Azure service to generate an embedding vector of the search query
     def get_embedding(self, input):
         # Endpoint URL
@@ -553,8 +595,6 @@ class SearchForLGProducts(AiFunction):
         embedding_vector = response.json()['data'][0]['embedding']
         
         return embedding_vector
-    
-
 
     # Function to query Pinecone DB
     def query_pinecone_db(self, query_vector, namespace, filter:dict=None, top_k=7):
@@ -578,33 +618,65 @@ class SearchForLGProducts(AiFunction):
         
         # Return the response (can be parsed as needed)
         return response.json()
-    
 
 
-    def get_dynamo_db_product_details(self, sku:str):
-        # Endpoint URL
-        url = "https://retailassist-poc.kore.ai/pimWrapper/v1/getItems"
 
-        # Parameters
-        headers = {
-            'Stage': 'dev',
-            'x-secret-key': 'edc6f2b0-0b7a-11ec-82a8-0242ac130003',
-            'Content-Type': 'application/json'
+class GetLGProductDetails(AiFunction):
+
+    def get_spec(self):
+        return {
+            "name": "get_lg_product_details",
+            "description": "Get LG product details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_sku": {
+                        "type": "string",
+                        "description": "The SKU of the product to get details for. Example: 55UQ7570PUJ",
+                    }
+                },
+                "required": ["product_sku"],
+            }
         }
-        data = {
-            "ids": [sku],
-            "PIMEnv": "lg-pim-uat"
+
+    def execute(self, args) -> 'AiFunction.Result':
+    
+        sku = args['product_sku']
+
+        detailed_info = get_product_data_from_dynamo_db(sku)
+
+        return_info = {}
+
+        main_info = detailed_info['product']
+        return_info['title'] = main_info['title']
+        return_info['sku'] = main_info['sku']
+        return_info['category'] = main_info['categoryInfo'][0]['categoryName']
+        return_info['product_url'] = 'https://www.lg.com/us' + main_info['pdpUrl']
+
+        price_info = main_info['price']
+        return_info['price'] = {
+            'msrp': price_info['msrp']['displayText'],
+            'final_price': price_info['finalPrice']['displayText'],
+            'discount': price_info['discount']['displayText']
+        }
+        return_info['image_url'] = main_info['mediaAssets'][0]['thumbnailUrl']
+        # return_info['image_url'] = main_info['mediaAssets'][0]['assetUrl']
+        return_info['key_features'] = [item['feature'] for item in main_info['keyFeatures']]
+        return_info['rating'] = f"{main_info['review']['points']} ({main_info['review']['reviewers']} reviewers)"
+        return_info['model_code'] = main_info['modelCode']
+        return_info['model_status'] = main_info['modelStatus']
+        return_info['stock_status'] = main_info['stockStatus']['statusCode']
+
+        return_info['additional_info'] = {
+            spec['subtitle']: [
+                item['term'] if item['description'] == "Yes" else f"{item['term']}: {item['description']}"
+                for item in spec['tableData']
+            ] for spec in detailed_info['allInfo']
         }
 
-        # Make the POST request and parse it
-        response = requests.post(url, headers=headers, json=data)
-        parsed_response = json.loads(response.text)
-        product_info = parsed_response[sku]
-        product_info['product_url'] = 'https://www.lg.com/us' + product_info['pdpUrl']
-        del product_info['pdpUrl']
-        return product_info
-    
+        return AiFunction.Result(str(return_info), pin_to_memory=True)
 
+        
 
 def run():
 
@@ -643,7 +715,9 @@ def run():
                             model_temperature=0.1,
                             system_prompt_engineering=system_prompt_engineering,
                             welcome_message=open('prompts & content/welcome message.md').read(),
-                            ai_functions=[SearchForLGProducts()]
+                            # ai_functions=[SearchForLGProducts_OldVersion()]
+                            ai_functions=[SearchForLGProducts(), GetLGProductDetails()]
+                            
         )
 
     # Run the AIBot
