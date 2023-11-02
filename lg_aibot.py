@@ -541,7 +541,7 @@ class SearchForLGProducts(AiFunction):
                         "description": 'MongoDB Query Language (MQL) query to filter products by price. Example: {"price":{"$lt":500}}'
                     }
                 },
-                "required": ["search_query", "product_category"],
+                "required": ["search_criteria", "product_category"],
             }
         }
 
